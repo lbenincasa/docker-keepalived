@@ -1,0 +1,199 @@
+name: Docker Multi-Architecture Build
+
+# Trigger the workflow on push to specific branches or on tags
+on:
+  push:
+    branches:
+      - main # Or your primary development branch like 'master'
+      - develop
+      - stable
+    tags:
+      - 'v*' # Trigger on tags like v1.0.0, v1.1.0, etc.
+      - '*'  # Catch other tags as well if needed
+  pull_request:
+    branches:
+      - main
+      - develop
+      - stable
+  workflow_dispatch: # Allows manual triggering from the GitHub UI
+
+# Define global environment variables for the workflow
+env:
+  # Base image name for Docker Hub
+  IMAGE_NAME: "osixia/keepalived"
+
+jobs:
+  # Job to build and push individual architecture-specific Docker images
+  build_and_push_image:
+    runs-on: ubuntu-latest
+    strategy:
+      # Define the matrix for different architectures
+      matrix:
+        # TARGET_ARCH: The architecture suffix for the Docker image tag (e.g., amd64, arm32v7)
+        # QEMU_ARCH: The QEMU architecture name for cross-building
+        include:
+          - TARGET_ARCH: amd64
+            QEMU_ARCH: x86_64
+          - TARGET_ARCH: arm32v7
+            QEMU_ARCH: arm
+          - TARGET_ARCH: arm64v8
+            QEMU_ARCH: aarch64
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Set DOCKER_CLI_EXPERIMENTAL for 'docker manifest' (though modern Docker might not strictly need it globally)
+      - name: Enable Docker Experimental Features (if needed)
+        run: echo "DOCKER_CLI_EXPERIMENTAL=enabled" >> $GITHUB_ENV
+        # In GitHub Actions, Docker is usually recent enough, so the `addons: apt:` part
+        # from Travis CI for updating Docker CE is generally not required.
+        # The ~/.docker/config.json change is typically handled by DOCKER_CLI_EXPERIMENTAL env var.
+
+      # Set up QEMU for multi-architecture builds
+      # This replaces `docker run --rm --privileged multiarch/qemu-user-static:register --reset`
+      # and ensures the build environment can handle different architectures.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      # Set up Docker Buildx for enhanced build capabilities and multi-platform builds
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Calculate the image VERSION based on branch or tag
+      # This logic mimics the `before_script` section from Travis CI.
+      - name: Calculate Image Version
+        id: calculate_version
+        run: |
+          # Default version for branches
+          BUILD_VERSION="${{ github.ref_name }}-dev"
+
+          # If it's a tag, use the tag name (stripping 'v' prefix if present)
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            RAW_TAG_NAME="${{ github.ref_name }}"
+            # Remove 'v' prefix if it exists, similar to Travis's sed
+            BUILD_VERSION=$(echo "$RAW_TAG_NAME" | sed -e 's/^v//g')
+          fi
+
+          # If the branch is 'stable', set version to 'stable' (overrides tag logic if stable branch is tagged)
+          if [[ "${{ github.ref_name }}" == 'stable' ]]; then
+            BUILD_VERSION="stable"
+          fi
+
+          echo "Calculated image version: $BUILD_VERSION"
+          echo "IMAGE_VERSION=$BUILD_VERSION" >> $GITHUB_ENV # Set as an environment variable for subsequent steps
+
+      # Install Bats for unit tests (similar to Travis `install` section)
+      - name: Install Bats
+        run: |
+          curl -o bats.tar.gz -SL https://github.com/bats-core/bats-core/archive/v1.1.0.tar.gz
+          mkdir bats-core && tar -xf bats.tar.gz -C bats-core --strip-components=1
+          sudo bats-core/install.sh /usr/local
+          rm -rf bats-core bats.tar.gz # Clean up after installation
+
+      # Modify Dockerfile for specific architecture (similar to Travis `before_script` sed)
+      - name: Modify Dockerfile for Architecture
+        run: |
+          # Assuming `image/Dockerfile` is the path to your Dockerfile
+          sed -i -e "s/FROM \\(.*\\)/FROM \\1-${{ matrix.TARGET_ARCH }}/g" image/Dockerfile
+          cat image/Dockerfile # Display the modified Dockerfile for verification
+
+      # Build the Docker image (similar to Travis `script` - `make build-nocache`)
+      - name: Build Docker Image
+        run: make build-nocache NAME=${{ env.IMAGE_NAME }} VERSION=${{ env.IMAGE_VERSION }}-${{ matrix.TARGET_ARCH }}
+
+      # Run tests (similar to Travis `script` - `make test`)
+      - name: Run Tests
+        # This step depends on the image being built.
+        # Ensure your `make test` command points to the correct image:tag
+        run: make test NAME=${{ env.IMAGE_NAME }} VERSION=${{ env.IMAGE_VERSION }}-${{ matrix.TARGET_ARCH }}
+
+      # Login to Docker Hub (similar to Travis `before_deploy` - `docker login`)
+      # DOCKER_USERNAME and DOCKER_PASSWORD must be configured as repository secrets.
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Tag and Push the Docker image (similar to Travis `before_deploy` - `make tag` and `deploy: script` - `make push`)
+      # The check `docker ps | grep -q test_image` from Travis is implicitly handled by `make test` success.
+      - name: Tag and Push Docker Image
+        # This step will run only if the previous steps (build and test) are successful
+        run: |
+          make tag NAME=${{ env.IMAGE_NAME }} VERSION=${{ env.IMAGE_VERSION }}-${{ matrix.TARGET_ARCH }}
+          make push NAME=${{ env.IMAGE_NAME }} VERSION=${{ env.IMAGE_VERSION }}-${{ matrix.TARGET_ARCH }}
+
+  # Job to create and push the multi-architecture manifest list
+  create_and_push_manifest:
+    runs-on: ubuntu-latest
+    # This job runs only after all 'build_and_push_image' jobs have completed successfully
+    needs: build_and_push_image
+    # This job should only run for pushes to specific branches (e.g., main, stable) or tags,
+    # as manifest lists are typically created for releases/stable versions.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stable' || startsWith(github.ref, 'refs/tags/'))
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Set up Docker Buildx (required for manifest commands)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Calculate the image VERSION (re-calculate to ensure consistency)
+      - name: Calculate Image Version for Manifest
+        id: calculate_version_manifest
+        run: |
+          BUILD_VERSION="${{ github.ref_name }}-dev"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            RAW_TAG_NAME="${{ github.ref_name }}"
+            BUILD_VERSION=$(echo "$RAW_TAG_NAME" | sed -e 's/^v//g')
+          fi
+          if [[ "${{ github.ref_name }}" == 'stable' ]]; then
+            BUILD_VERSION="stable"
+          fi
+          echo "Manifest version: $BUILD_VERSION"
+          echo "MANIFEST_VERSION=$BUILD_VERSION" >> $GITHUB_ENV
+
+      # Login to Docker Hub before creating and pushing manifests
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Create the Docker manifest list (similar to Travis `after_deploy` - `docker manifest create`)
+      - name: Create Docker Manifest
+        run: |
+          docker manifest create ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }} \
+            ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-amd64 \
+            ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-arm32v7 \
+            ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-arm64v8
+
+      # Annotate the manifest list (similar to Travis `after_deploy` - `docker manifest annotate`)
+      - name: Annotate Docker Manifest
+        run: |
+          docker manifest annotate ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }} ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-amd64 --os linux --arch amd64
+          docker manifest annotate ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }} ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-arm32v7 --os linux --arch arm --variant v7
+          docker manifest annotate ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }} ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-arm64v8 --os linux --arch arm64 --variant v8
+
+      # Push the Docker manifest list
+      - name: Push Docker Manifest
+        run: docker manifest push ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}
+
+      # Create and push the 'latest' manifest if on the 'stable' branch
+      # This logic mimics the `if [ "${TRAVIS_BRANCH}" == 'stable' ]` from Travis CI.
+      - name: Create and Push 'latest' Manifest (if stable branch)
+        if: ${{ github.ref_name == 'stable' }} # Check if the current branch is 'stable'
+        run: |
+          docker manifest create ${{ env.IMAGE_NAME }}:latest \
+            ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-amd64 \
+            ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-arm32v7 \
+            ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-arm64v8
+          docker manifest annotate ${{ env.IMAGE_NAME }}:latest ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-amd64 --os linux --arch amd64
+          docker manifest annotate ${{ env.IMAGE_NAME }}:latest ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-arm32v7 --os linux --arch arm --variant v7
+          docker manifest annotate ${{ env.IMAGE_NAME }}:latest ${{ env.IMAGE_NAME }}:${{ env.MANIFEST_VERSION }}-arm64v8 --os linux --arch arm64 --variant v8
+          docker manifest push ${{ env.IMAGE_NAME }}:latest
