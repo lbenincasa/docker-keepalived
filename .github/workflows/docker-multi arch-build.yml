@@ -20,7 +20,7 @@ on:
 # Define global environment variables for the workflow
 env:
   # Base image name for Docker Hub
-  IMAGE_NAME: "osixia/keepalived"
+  IMAGE_NAME: "beni69/keepalived"
 
 jobs:
   # Job to build and push individual architecture-specific Docker images
