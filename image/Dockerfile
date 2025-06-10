@@ -28,7 +28,7 @@ RUN apk --no-cache add \
     && mkdir -p /container/keepalived-sources \
     && tar -xzf keepalived.tar.gz --strip 1 -C /container/keepalived-sources \
     && cd container/keepalived-sources \
-    && ./configure --disable-dynamic-linking \
+    && ./configure --disable-dynamic-linking --enable-json \
     && make && make install \
     && cd - && mkdir -p /etc/keepalived \
     && rm -f keepalived.tar.gz \
