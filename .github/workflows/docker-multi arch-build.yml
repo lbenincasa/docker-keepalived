@@ -1,4 +1,4 @@
-name: Docker Multi-Architecture Build
+name: Docker Multi-Architecture Build (original from Travis-CI)
 
 # Trigger the workflow on push to specific branches or on tags
 on:
