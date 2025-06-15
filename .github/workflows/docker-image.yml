@@ -12,7 +12,12 @@ on:
         options:
         - info
         - warning
-        - debug 
+        - debug
+      git_ref: # <-- NEW INPUT HERE
+        description: 'Git tag, branch, or SHA to checkout (e.g., v1.0.0, main, a1b2c3d)'
+        required: false # Making it optional, so if not provided, it uses the default branch
+        default: 'master' # Or your default branch name, e.g., 'master'
+        type: string
       tags:
         description: 'Tag to use'
         default: "latest"
@@ -40,6 +45,8 @@ jobs:
       - 
         name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref }} # <-- USE THE NEW INPUT HERE
 #      run: |
 #        docker build . --file Dockerfile.ubuntu --tag ansible:ubuntu-$(date +%s)
 #        echo ${{ inputs.logLevel }}
