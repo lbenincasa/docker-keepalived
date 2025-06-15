@@ -84,7 +84,7 @@ ADD environment /container/environment/99-default
 EXPOSE 9650
 
 # Startup script (adjust as needed, especially the keepalived-exporter config path)
-COPY start.sh /usr/local/bin/start.sh
-RUN chmod +x /usr/local/bin/start.sh
+###COPY start.sh /usr/local/bin/start.sh
+###RUN chmod +x /usr/local/bin/start.sh
 
-ENTRYPOINT ["/usr/local/bin/start.sh"]
+###ENTRYPOINT ["/usr/local/bin/start.sh"]
