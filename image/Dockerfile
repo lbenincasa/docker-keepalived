@@ -61,7 +61,7 @@ RUN apk --no-cache add wget ca-certificates && \
         "linux/amd64") EXPORTER_ARCH="amd64" ;; \
         "linux/arm64") EXPORTER_ARCH="arm64" ;; \
         "linux/arm/v7") EXPORTER_ARCH="armv7" ;; \
-        *) echo "Unsupported TARGETPLATFORM: ${TARGETPLATFORM}"; exit 1 ;; \
+        *) echo "Unsupported TARGETPLATFORM: ${TARGETPLATFORM}"; EXPORTER_ARCH="UNKNOWN"; exit 1 ;; \
     esac && \
     echo "Downloading keepalived-exporter version ${EXPORTER_VERSION} for architecture ${EXPORTER_ARCH}..." && \
     wget "https://github.com/mehdy/keepalived-exporter/releases/download/v${EXPORTER_VERSION}/keepalived-exporter_${EXPORTER_VERSION}_linux_${EXPORTER_ARCH}.tar.gz" -O /tmp/exporter.tar.gz && \
