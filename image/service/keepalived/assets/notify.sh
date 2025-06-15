@@ -15,6 +15,7 @@ TYPE=$1
 NAME=$2
 STATE=$3
 
+echo ">>> I'm type: $TYPE, name: $NAME" > /proc/1/fd/1
 case $STATE in
     "MASTER") echo "I'm the MASTER! Whup whup." > /proc/1/fd/1
         exit 0
