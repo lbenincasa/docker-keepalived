@@ -6,6 +6,17 @@ FROM osixia/light-baseimage:alpine-0.1.6-dev
 #ARG KEEPALIVED_VERSION=2.0.20
 ARG KEEPALIVED_VERSION=2.3.3
 
+# automatic args from buildx
+# automatic args from buildx
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETARCH
+ARG BUILDARCH
+ARG TARGETOS
+ARG BUILDOS
+
+RUN echo ">>> i am running on $BUILDPLATFORM [os: $BUILDOS, arch: $BUILDARCH], building for $TARGETPLATFORM [os: $BUILDOS, arch: $BUILDARCH]"
+
 
 # Download, build and install Keepalived
 RUN apk --no-cache add \
