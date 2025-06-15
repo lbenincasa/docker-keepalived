@@ -5,6 +5,8 @@ FROM osixia/light-baseimage:alpine-0.1.6-dev
 # Keepalived version
 #ARG KEEPALIVED_VERSION=2.0.20
 ARG KEEPALIVED_VERSION=2.3.3
+# keepalived-exporter version
+ARG EXPORTER_VERSION="1.7.0"
 
 # automatic args from buildx
 ARG TARGETPLATFORM
@@ -53,9 +55,6 @@ RUN apk --no-cache add \
     make \
     musl-dev \
     openssl-dev
-
-# keepalived-exporter
-ARG EXPORTER_VERSION="1.7.0" # !!! VERIFICA L'ULTIMA VERSIONE QUI: https://github.com/mehdy/keepalived-exporter/releases !!!
 
 RUN apk --no-cache add wget ca-certificates && \
     case ${TARGETPLATFORM} in \
